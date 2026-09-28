@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://api.github.com; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#f6f4ef">
+<title>連絡帳 下書き</title>
+<!--
+  piyo2codmon 起動ページ（家族用）
+
+  秘密情報はこのファイルに書かない。人ごとに次のリンクを渡し、1回開くとブラウザに保存される:
+    https://<owner>.github.io/<このページのリポジトリ>/#t=<トークン>&r=<owner>/piyo2codmon&n=<名前>
+  # 以降はサーバーに送られない。保存後はアドレスバーから消す。
+  手順は SETUP_GITHUB_ACTIONS.md の「9.」を参照。
+-->
+<style>
+  :root {
+    --bg: #f6f4ef; --card: #ffffff; --text: #22211f; --muted: #6b6861;
+    --accent: #2f6f5e; --accent-text: #ffffff; --border: #e3dfd6;
+    --ok: #2f6f5e; --ng: #b3412e; --pre: #f1eee7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a18; --card: #242421; --text: #ecebe6; --muted: #a09d95;
+      --accent: #5fae97; --accent-text: #10201b; --border: #383733;
+      --ok: #7cc7ae; --ng: #ef8a76; --pre: #2d2d29;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  main { max-width: 520px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+  button {
+    width: 100%; min-height: 56px; border: 0; border-radius: 12px;
+    background: var(--accent); color: var(--accent-text);
+    font: inherit; font-size: 18px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  #status { margin: 16px 0 0; min-height: 1.6em; }
+  #status.ok { color: var(--ok); font-weight: 600; }
+  #status.ng { color: var(--ng); font-weight: 600; }
+  pre {
+    background: var(--pre); border-radius: 10px; padding: 12px; margin: 12px 0 0;
+    font: 13px/1.5 ui-monospace, "SFMono-Regular", Menlo, monospace;
+    white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere;
+  }
+  .note { color: var(--muted); font-size: 13px; margin: 16px 0 0; }
+  .reset { background: none; color: var(--muted); font-size: 13px; min-height: 0; width: auto;
+           padding: 0; margin-top: 24px; text-decoration: underline; font-weight: 400; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>コドモン連絡帳を下書き保存</h1>
+  <p class="sub" id="who"></p>
+
+  <div class="card" id="ready" hidden>
+    <button id="run" type="button">下書きを保存する</button>
+    <p id="status" role="status" aria-live="polite"></p>
+    <pre id="result" hidden></pre>
+    <p class="note">ぴよログの記録をもとに、今日の連絡帳へ<strong>下書き</strong>として入力します（施設には送信されません）。
+      結果が出るまで1分ほどかかります。</p>
+  </div>
+
+  <div class="card" id="setup" hidden>
+    <p>このページは、共有されたリンクから開いてください。</p>
+    <p class="note">リンクを一度開くと、この端末のブラウザに設定が保存されます。</p>
+  </div>
+
+  <button class="reset" id="reset" type="button" hidden>この端末の設定を消す</button>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  const KEY = "piyo2codmon.launcher";
+  const WORKFLOW = "piyo2codmon.yml";
+  const $ = (id) => document.getElementById(id);
+
+  // ---- 設定の読み込み（#t=...&r=...&n=... → localStorage） ----
+  function loadConfig() {
+    const hash = new URLSearchParams(location.hash.slice(1));
+    if (hash.get("t") && hash.get("r")) {
+      const cfg = { token: hash.get("t"), repo: hash.get("r"), name: hash.get("n") || "" };
+      try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch (_) {}
+      history.replaceState(null, "", location.pathname + location.search);
+      return cfg;
+    }
+    try {
+      const cfg = JSON.parse(localStorage.getItem(KEY) || "null");
+      if (cfg && cfg.token && cfg.repo) return cfg;
+    } catch (_) {}
+    return null;
+  }
+
+  const cfg = loadConfig();
+  if (!cfg) { $("setup").hidden = false; return; }
+  $("ready").hidden = false;
+  $("reset").hidden = false;
+  $("who").textContent = cfg.name ? `${cfg.name} さんとして実行します` : "";
+
+  $("reset").addEventListener("click", () => {
+    if (!confirm("この端末から設定（トークン）を消します。もう一度使うにはリンクを開き直す必要があります。")) return;
+    try { localStorage.removeItem(KEY); } catch (_) {}
+    location.reload();
+  });
+
+  // ---- GitHub API ----
+  class ApiError extends Error {
+    constructor(status, message) { super(message); this.status = status; }
+  }
+
+  async function api(path, opts = {}) {
+    const res = await fetch(`https://api.github.com/repos/${cfg.repo}${path}`, {
+      method: opts.method || "GET",
+      headers: {
+        "Accept": "application/vnd.github+json",
+        "Authorization": `Bearer ${cfg.token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+        ...(opts.body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      cache: "no-store",
+    });
+    if (res.status === 204) return null;
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new ApiError(res.status, (data && data.message) || res.statusText);
+    return data;
+  }
+
+  function explain(err) {
+    if (err instanceof ApiError) {
+      if (err.status === 401) return "リンクの期限が切れているか、無効になっています。送ってくれた人に新しいリンクをもらってください。";
+      if (err.status === 403) return "このリンクには実行する権限がありません。送ってくれた人に確認してください。";
+      if (err.status === 404) return "実行先が見つかりません。送ってくれた人に確認してください。";
+      return `エラー (${err.status}): ${err.message}`;
+    }
+    if (err instanceof TypeError) return "通信できませんでした。電波の良いところで、もう一度お試しください。";
+    return String(err.message || err);
+  }
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function setStatus(text, kind = "") {
+    $("status").textContent = text;
+    $("status").className = kind;
+  }
+
+  // ワークフローを起動して run id を返す
+  async function dispatch(requestId) {
+    const repo = await api("");
+    const body = {
+      ref: repo.default_branch,
+      inputs: { mode: "draft", requested_by: cfg.name, request_id: requestId },
+    };
+    const since = new Date(Date.now() - 60 * 1000).toISOString().replace(/\.\d+Z$/, "Z");
+    let res;
+    try {
+      // 対応していれば起動した run の ID がそのまま返る
+      res = await api(`/actions/workflows/${WORKFLOW}/dispatches`,
+                      { method: "POST", body: { ...body, return_run_details: true } });
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 422 && /return_run_details/.test(e.message))) throw e;
+      res = await api(`/actions/workflows/${WORKFLOW}/dispatches`, { method: "POST", body });
+    }
+    if (res && res.workflow_run_id) return res.workflow_run_id;
+
+    // 返らない場合は、タイトル（run-name）に入れた request_id で探す
+    for (let i = 0; i < 20; i++) {
+      await sleep(3000);
+      const list = await api(`/actions/workflows/${WORKFLOW}/runs?event=workflow_dispatch&per_page=20&created=%3E%3D${encodeURIComponent(since)}`);
+      const run = (list.workflow_runs || []).find((r) => (r.display_title || "").includes(`[${requestId}]`));
+      if (run) return run.id;
+    }
+    throw new Error("実行が見つかりませんでした。しばらくしてからコドモンのアプリで下書きを確認してください。");
+  }
+
+  // 実行結果（ワークフローが書いたアノテーション）を取り出す
+  async function fetchResult(runId) {
+    const jobs = await api(`/actions/runs/${runId}/jobs`);
+    for (const job of jobs.jobs || []) {
+      const checkId = (job.check_run_url || "").split("/").pop();
+      if (!checkId) continue;
+      try {
+        const anns = await api(`/check-runs/${checkId}/annotations?per_page=50`);
+        const hit = anns.find((a) => a.title === "piyo2codmon-result");
+        if (hit) return hit.message;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 403) return null; // Checks 権限なし
+        throw e;
+      }
+    }
+    return null;
+  }
+
+  $("run").addEventListener("click", async () => {
+    const btn = $("run");
+    btn.disabled = true;
+    $("result").hidden = true;
+    const started = Date.now();
+    const elapsed = () => `${Math.round((Date.now() - started) / 1000)}秒`;
+
+    try {
+      setStatus("受け付けています…");
+      const requestId = Array.from(crypto.getRandomValues(new Uint8Array(4)),
+                                   (b) => b.toString(16).padStart(2, "0")).join("");
+      const runId = await dispatch(requestId);
+
+      let run;
+      for (;;) {
+        run = await api(`/actions/runs/${runId}`);
+        if (run.status === "completed") break;
+        if (Date.now() - started > 10 * 60 * 1000) {
+          throw new Error("時間がかかっています。しばらくしてからコドモンのアプリで下書きを確認してください。");
+        }
+        setStatus(`${run.status === "in_progress" ? "実行中" : "順番待ち"}… (${elapsed()})`);
+        await sleep(5000);
+      }
+
+      const ok = run.conclusion === "success";
+      setStatus(ok ? "下書きを保存しました。コドモンのアプリで内容を確認してください。"
+                   : "うまくいきませんでした。内容を確認してください。", ok ? "ok" : "ng");
+      const text = await fetchResult(runId);
+      if (text) { $("result").textContent = text; $("result").hidden = false; }
+    } catch (err) {
+      setStatus(explain(err), "ng");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>
